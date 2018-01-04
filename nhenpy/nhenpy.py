@@ -40,19 +40,20 @@ class NHentaiDoujin():
         Creates a nhentai doujin object.
     
     Parameters:
-        code (required): Doujin code. ex.(/g/12345/)
+        code (required): Doujin code. ex.(/g/12345/, 12345, nhentai.net/g/12345/)
         title: Doujin title, usually used by the NHentai class
 
     """
     def __init__(self, code, title=None):
-        self.code = code
+        result = re.findall(r"g\/(\d*)", code)
+        self.code = result[0] if result if code
         self.soup = None
         self._title = title
 
 
     def _call_soup(self):
         if not self.soup:
-            data = requests.get(f"https://nhentai.net{self.code}")
+            data = requests.get(f"https://nhentai.net/g/{self.code}/")
             self.soup = BeautifulSoup(data.text, "html.parser")
 
 
