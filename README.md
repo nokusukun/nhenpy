@@ -41,7 +41,9 @@ Seach Query: language:english -- Page [1] Items [25]
 >>> 
 >>> search[0].download_zip()
 Downloading: [Yaminabe] Ikutoshi Dasutoshi (Loliota) [English] [BlindEye].zip
-100%|██████████████████████████████████████████████████████████████████████████████| 28/28 [01:43<00:00,  2.59s/images] Finished!```
+100%|██████████████████████████████████████████████████████████████████████████████| 28/28 [01:43<00:00,  2.59s/images] Finished!
+```
+
 
 
 To just create a single doujin object, create a `nhenpy.NHentaiDoujin` object.
@@ -54,4 +56,5 @@ To just create a single doujin object, create a `nhenpy.NHentaiDoujin` object.
 'Ikutoshi Dasutoshi'
 >>> doujin
 <[/g/218906]NHentaiDoujin: Ikutoshi Dasutoshi>
->>>```
+>>>
+```
