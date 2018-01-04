@@ -46,7 +46,7 @@ class NHentaiDoujin():
     """
     def __init__(self, code, title=None):
         result = re.findall(r"g\/(\d*)", code)
-        self.code = result[0] if result if code
+        self.code = result[0] if result else code
         self.soup = None
         self._title = title
 
