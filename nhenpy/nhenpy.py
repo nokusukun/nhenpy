@@ -63,7 +63,7 @@ class NHentaiDoujin():
             return self._title
 
         self._call_soup()
-        self._title = self.soup.title.text.split(" » ")[0] 
+        self._title = self.soup.find(id="info").find("h1").text
         return self._title
 
 
@@ -117,6 +117,10 @@ class NHentaiDoujin():
 
         return self._tags
 
+    def _sanitize(self, s):
+        keepcharacters = " .[]_()@!#*-+"
+        return "".join(c for c in s if c.isalnum() or c in keepcharacters).rstrip()
+
 
     def download_zip(self, **kwargs):
         """
@@ -125,17 +129,13 @@ class NHentaiDoujin():
 
         Parameters
             **filename: Filename of the zip file. Defaults to a sanitized NHentaiDoujin.title.
-            **folder:   Folder where to save the zipfile. Defaults to the current working folder.
+            **path:   Folder where to save the zipfile. Defaults to the current working folder.
             **threads:  No of threads to spawn when downloading. Defaults to 8.
         """
-        def sanitize(s):
-            keepcharacters = " .[]_()@!#*-+"
-            return "".join(c for c in s if c.isalnum() or c in keepcharacters).rstrip()
-
         # Ensures that there's a title.
         images = self.get_images()
-        filename = kwargs["filename"] if "filename" in kwargs else sanitize(self.title)+".zip"
-        with zipfile.ZipFile(os.path.join(*[x for x in [kwargs.get("folder"), filename] if x]), "w") as z:
+        filename = kwargs["filename"] if "filename" in kwargs else self._sanitize(self.title)+".zip"
+        with zipfile.ZipFile(os.path.join(*[x for x in [kwargs.get("path"), filename] if x]), "w") as z:
             print(f"Downloading: {filename}")
             with tqdm.tqdm(total=len(images), unit="images") as progress:
                 q = queue.Queue()
@@ -144,7 +144,7 @@ class NHentaiDoujin():
 
                 work_threads = []
                 for i in range(kwargs.get("threads", 8)):
-                    t = NHentaiDownloadThread(q, z, progress)
+                    t = NHentaiDownloadZipThread(q, z, progress)
                     t.setDaemon(True)
                     t.start()
                     work_threads.append(t)
@@ -159,7 +159,48 @@ class NHentaiDoujin():
             print(f"Finished!")
 
 
-class NHentaiDownloadThread(threading.Thread):
+    def download(self, **kwargs):
+        """
+        NHentaiDouhin.download(**kwargs)
+            Downloads the doujin into a folder
+
+        Parameters
+            **filename: Filename of the zip file. Defaults to a sanitized NHentaiDoujin.title.
+            **path:   Folder where to save the zipfile. Defaults to the current working folder.
+            **threads:  No of threads to spawn when downloading. Defaults to 8.
+        """
+        # Ensures that there's a title.
+        images = self.get_images()
+        folder = kwargs["folder"] if "folder" in kwargs else self._sanitize(self.title)
+        print(f"Downloading: {folder}")
+
+        fullpath = os.path.join(*[x for x in [kwargs.get("path"), folder] if x])
+        if not os.path.exists(fullpath):
+            os.makedirs(fullpath)
+
+        with tqdm.tqdm(total=len(images), unit="images") as progress:
+            q = queue.Queue()
+            for image in images:
+                q.put(image)
+
+            work_threads = []
+            for i in range(kwargs.get("threads", 8)):
+                t = NHentaiDownloadThread(q, folder, progress)
+                t.setDaemon(True)
+                t.start()
+                work_threads.append(t)
+
+            # Wait for the stuff to end.
+            q.join()
+
+            for t in work_threads:
+                # Shutdowns the threads.
+                t.running = False
+
+        print(f"Finished!")
+
+
+class NHentaiDownloadZipThread(threading.Thread):
 
     def __init__(self, queue, zipf, progress):
         threading.Thread.__init__(self)
@@ -189,6 +230,30 @@ class NHentaiDownloadThread(threading.Thread):
             self.progress.update(1)
             # signals to queue job is done
             self.queue.task_done()
+
+
+class NHentaiDownloadThread(threading.Thread):
+
+    def __init__(self, queue, path, progress):
+        threading.Thread.__init__(self)
+        self.queue = queue
+        self.path = path
+        self.progress = progress
+        self.running = True
+
+
+    def run(self):
+        while self.running:
+            # grabs host from queue
+            host = self.queue.get()
+            filename = host.split("/")[-1]
+            data = requests.get(host)
+            with open(os.path.join(self.path, filename), "wb") as f:
+                f.write(data.content)
+            self.progress.update(1)
+            # signals to queue job is done
+            self.queue.task_done()
+
 
 
 
