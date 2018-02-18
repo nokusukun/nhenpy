@@ -27,7 +27,7 @@ class NHTags():
                     if x["tag"] in self.__dict__:
                         self.__dict__[x["tag"]].append(x["value"])
                     else:
-                        self.__dict__[x["tag"]] = [x["value"]]
+                        self.__dict__[x["tag"]] = [x["value"]].replace("-", " ")
                 except:
                     self._complete = False
         elif not self._nhe._tags:
@@ -297,8 +297,9 @@ class QueryTag():
         else:    
             tag = string[0]
             value = string[1]
-            value = value.replace('"', '').replace("'", "").replace(" ", "-").lower()
-            
+            # This Code Works, but gives less and different results for some reason.
+            # value = value.replace('"', '').replace("'", "").replace(" ", "-").lower()
+            value = value.replace('"', '').replace("'", "").lower()
         return cls(tag, value, include)
 
     def __repr__(self):
@@ -340,7 +341,7 @@ class Query():
         return " ".join(str(x) for x in self.tags)
 
 
-class Internal():
+class _Internal():
     tag_links = ["https://nhentai.net/tags/",
                  "https://nhentai.net/artists/",
                  "https://nhentai.net/characters/",
