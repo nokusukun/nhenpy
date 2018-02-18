@@ -6,28 +6,44 @@ import hashlib
 import zipfile
 import threading
 import queue
+import shlex
+import json
+import pkg_resources
 
 from bs4 import BeautifulSoup
 import tqdm
 
 class NHTags():
-
-    def __init__(self, nhe):
+    _tag_store = json.loads(open(os.path.join(os.path.dirname(__file__), 'tags.transformed.json')).read())
+    def __init__(self, nhe, tag_ids=[]):
         keys = []
         self._nhe = nhe
-        for label in nhe.get_labels():
-            x = label.split("/")
-            keys.append(x[1])
-            if x[1] in self.__dict__:
-                self.__dict__[x[1]].append(x[2])
-            else:
-                self.__dict__[x[1]] = [x[2]]
+        self._complete = True
+        if tag_ids:
+            for tag in tag_ids:
+                try:
+                    x = self._tag_store[tag]
+                    keys.append(x["tag"])
+                    if x["tag"] in self.__dict__:
+                        self.__dict__[x["tag"]].append(x["value"])
+                    else:
+                        self.__dict__[x["tag"]] = [x["value"]]
+                except:
+                    self._complete = False
+        elif not self._nhe._tags:
+                for label in nhe.get_labels():
+                    x = label[1:-1].split("/")
+                    keys.append(x[0])
+                    if x[0] in self.__dict__:
+                        self.__dict__[x[0]].append(x[1])
+                    else:
+                        self.__dict__[x[0]] = [x[1]]
 
         self.keys = list(set(keys))
-
+    
 
     def __repr__(self):
-        return f"<[{self._nhe.code}]{self._nhe.title} Tags: ({', '.join(self.keys)})>"
+        return f"<{'!' if not self._complete else ''}[{self._nhe.code}]{self._nhe.title} Tags: ({', '.join(self.keys)})>"
 
 
     def to_dict(self):
@@ -44,11 +60,13 @@ class NHentaiDoujin():
         title: Doujin title, usually used by the NHentai class
 
     """
-    def __init__(self, code, title=None):
+    def __init__(self, code, title=None, tags=None):
         result = re.findall(r"g\/(\d*)", code)
         self.code = result[0] if result else code
         self.soup = None
         self._title = title
+        if tags:
+            self._tags = NHTags(self, tags)
 
 
     def _call_soup(self):
@@ -114,6 +132,9 @@ class NHentaiDoujin():
     def info(self):
         if "_tags" not in self.__dict__:
             self._tags = NHTags(self)
+        if not self._tags._complete:
+            if self.soup:
+                self._tags = NHTags(self)
 
         return self._tags
 
@@ -155,6 +176,7 @@ class NHentaiDoujin():
                 for t in work_threads:
                     # Shutdowns the threads.
                     t.running = False
+                    del(t)
 
             print(f"Finished!")
 
@@ -196,6 +218,7 @@ class NHentaiDoujin():
             for t in work_threads:
                 # Shutdowns the threads.
                 t.running = False
+                del(t)
 
         print(f"Finished!")
 
@@ -241,7 +264,6 @@ class NHentaiDownloadThread(threading.Thread):
         self.progress = progress
         self.running = True
 
-
     def run(self):
         while self.running:
             # grabs host from queue
@@ -255,6 +277,110 @@ class NHentaiDownloadThread(threading.Thread):
             self.queue.task_done()
 
 
+class QueryTag():
+    def __init__(self, tag, value, include=True):
+        self.tag = tag
+        self.value = value
+        self.include = include
+
+    @classmethod
+    def from_string(cls, string):
+        include = True
+        if string.startswith("-"):
+            include = False
+            string = string[1:]
+        string = string.split(":")
+        if len(string) != 2:
+            #raise Exception("Malformed Tag string passed.")
+            tag = "?"
+            value = string[0]
+        else:    
+            tag = string[0]
+            value = string[1]
+            value = value.replace('"', '').replace("'", "").replace(" ", "-").lower()
+            
+        return cls(tag, value, include)
+
+    def __repr__(self):
+        return f"<[QueryTag]{self.tag}: {self.value}, include:{self.include}>"
+
+    def __str__(self):
+        if self.tag == "?":
+            return self.value
+        return f"{'-' if not self.include else ''}{self.tag}:{self.value}"
+    
+    def to_dict(self):
+        return {"tag": self.tag, "value": self.value, "include": self.include}
+
+
+class Query():
+
+    def __init__(self, query_tags = []):
+        self.tags = []
+        if isinstance(query_tags, str):
+            query_tags = shlex.split(query_tags)
+        for i in query_tags:
+            if not isinstance(i, QueryTag):
+                i = QueryTag.from_string(i)
+            self.tags.append(i)
+
+    def __repr__(self):
+        return f"<[Query]{self.build()}>"
+
+    def __str__(self):
+        return self.build()
+
+    def add(self, query_tag):
+        for i in shlex.split(query_tag):
+            if not isinstance(i, QueryTag):
+                i = QueryTag.from_string(i)
+            self.tags.append(i)
+
+    def build(self):
+        return " ".join(str(x) for x in self.tags)
+
+
+class Internal():
+    tag_links = ["https://nhentai.net/tags/",
+                 "https://nhentai.net/artists/",
+                 "https://nhentai.net/characters/",
+                 "https://nhentai.net/parodies/",
+                 "https://nhentai.net/groups/"]
+
+    def __init__(self):
+        pass
+    
+    @classmethod
+    def process_tags(self):
+        tags = []
+        for tag_link in self.tag_links:
+            tags.extend(self.scrape_tags(tag_link))
+        with open("tags.json", "w") as f:
+            f.write(json.dumps(tags))
+                
+    @classmethod
+    def scrape_tags(self, tag_link):
+        p_tags = []
+        current_page = 1
+        while True:
+            page = requests.get(tag_link+f"?page={current_page}")
+            page = BeautifulSoup(page.text, "html.parser")
+            tags = page.find_all(class_="tag")
+            if len(tags) == 0:
+                break
+            for tag in tags:
+                try:
+                    tag_type, value = tag.get("href")[1:-1].split("/")
+                    tag_id = tag.get("class")[1].split("-")[1]
+                    tag_data = {"tag":tag_type, "value": value, "id": tag_id}
+                    print(f"SUCCESS PROCESSING: {tag_data}")
+                    p_tags.append(tag_data)
+                except:
+                    print(f"FAILED PROCESSING: {tag}")
+            current_page += 1
+        return p_tags
+                
+                
 
 
 class NHentai():
@@ -268,11 +394,19 @@ class NHentai():
 
 
     def extract(self, soup):
-        data = soup.find_all(class_="cover")
-        return {x["href"]: x.find(class_="caption").text for x in data}
-
+        data = soup.find_all(class_="gallery")
+        result = {}
+        for x in data:
+            href = x.find(class_="cover").get("href")
+            title = x.find(class_="cover").find(class_="caption").text
+            tags = x.get("data-tags").split(" ")
+            result.update({href: {"title": title, "tags": tags}})
+        return result
+        #return {x["href"]: x.find(class_="caption").text for x in data}
 
     def search(self, query, pages=0):
+        if isinstance(query, Query):
+            query = query.build()
         session_tag = f"search.{hashlib.md5(query.encode()).hexdigest()}.net"
         search_s = shelve.open(os.path.join(self.cache_path, session_tag), writeback=True)
         while True:
@@ -285,6 +419,8 @@ class NHentai():
 
             page = requests.get(self.search_endpoint, params={"q": query, "page": current_page})
             data = self.extract(BeautifulSoup(page.text, "html.parser"))
+            if data is None:
+                break
             if len(data) == 0:
                 print("\n")
                 break
@@ -296,7 +432,7 @@ class NHentai():
             search_s.sync()
 
 
-        result = [NHentaiDoujin(x, y) for x, y in search_s["result"].items()]
+        result = [NHentaiDoujin(x, y["title"], y["tags"]) for x, y in search_s["result"].items()]
         search_s.close()
 
         return result
